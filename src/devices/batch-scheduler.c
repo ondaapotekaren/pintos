@@ -25,9 +25,11 @@ typedef struct {
 
 static struct lock bus_lock;
 int currentdirection;
-int waiters[2];
-waiters[0]=0;
-waiters[1]=0;
+int waiters_norm[2];
+int waiters_prio[2];
+int jobs = 0;
+struct condition waitingToGoNorm[2];
+struct condition waitingToGoPrio[2];
 
 void batchScheduler(unsigned int num_tasks_send, unsigned int num_task_receive,
         unsigned int num_priority_send, unsigned int num_priority_receive);
@@ -49,10 +51,19 @@ void oneTask(task_t task);/*Task requires to use the bus and executes methods be
 void init_bus(void){ 
  
     random_init((unsigned int)123456789); 
-    
-    msg("NOT IMPLEMENTED");
+    waiters_norm[0]=0;
+    waiters_norm[1]=0;
+    waiters_prio[0]=0;
+    waiters_prio[1]=0;
+
+    //msg("NOT IMPLEMENTED");
     /* FIXME implement */
     lock_init (&bus_lock);
+    cond_init(&waitingToGoNorm[0]);
+    cond_init(&waitingToGoNorm[1]);
+    cond_init(&waitingToGoPrio[0]);
+    cond_init(&waitingToGoPrio[1]);
+
 
 }
 
@@ -67,10 +78,42 @@ void init_bus(void){
  *  Leave the bus (3).
  */
 
-void batchScheduler(unsigned int num_tasks_send, unsigned int num_task_receive,
+void batchScheduler(unsigned int num_tasks_send, unsigned int num_tasks_receive,
         unsigned int num_priority_send, unsigned int num_priority_receive)
 {
-    msg("NOT IMPLEMENTED");
+	task_t *task;
+	int i=0;
+	for(i=0;i<num_tasks_send;i++){
+		//char str[num_tasks_send];
+		//sprintf(str, "%d", i);
+		task->direction=0;
+		task->priority=0; 
+		thread_create("tt",1,oneTask,task);			
+	}   
+	for(i=0;i<num_tasks_receive;i++){
+		//char str[num_tasks_receive];
+		//sprintf(str, "%d", i);
+		task->direction=1;
+		task->priority=0; 
+		thread_create("tt",1,oneTask,task);				
+	}   
+	for(i=0;i<num_priority_send;i++){
+		//char str[num_priority_send];
+		//sprintf(str, "%d", i);
+		task->direction=0;
+		task->priority=1; 
+		thread_create("tt",1,oneTask,task);				
+	}  
+	for(i=0;i<num_priority_receive;i++){
+		//char str[num_priority_receive];
+		//sprintf(str, "%d", i);
+		task->direction=1;
+		task->priority=1; 
+		thread_create("tt",1,oneTask,task);				
+	}  
+
+	
+    //msg("NOT IMPLEMENTED");
     /* FIXME implement */
 }
 
@@ -109,12 +152,27 @@ void oneTask(task_t task) {
 /* task tries to get slot on the bus subsystem */
 void getSlot(task_t task) 
 {
-    msg("NOT IMPLEMENTED");
+    //msg("NOT IMPLEMENTED");
     lock_acquire (&bus_lock);
-    while((jobs == 3) || (jobs>0 && currentdirection != task->direction))
+    while((jobs == 3) || (jobs>0 && currentdirection != task.direction))
     {
-      waiters[task->direction]++;
+	if(task.priority=1){
+		waiters_prio[task.direction]++;
+		cond_wait(&waitingToGoPrio[task.direction],&bus_lock);
+		waiters_prio[task.direction]--;
+	} else 
+	{
+    		waiters_norm[task.direction]++;
+		cond_wait(&waitingToGoNorm[task.direction],&bus_lock);
+		waiters_norm[task.direction]--;
+	}
+	
+			
     }    
+	
+    jobs++;
+    currentdirection = task.direction;
+
     lock_release (&bus_lock);
     /* FIXME implement
       task->direction
@@ -127,13 +185,46 @@ void getSlot(task_t task)
 /* task processes data on the bus send/receive */
 void transferData(task_t task) 
 {
-    msg("NOT IMPLEMENTED");
+    printf("prio: %s, direction: %s\n", task.priority, task.direction);
+    timer_sleep(1000);
+    printf("%s\n", "Data transferred!");
+    //msg("NOT IMPLEMENTED");
     /* FIXME implement */
 }
 
 /* task releases the slot */
 void leaveSlot(task_t task) 
 {
-    msg("NOT IMPLEMENTED");
+    //msg("NOT IMPLEMENTED");
     /* FIXME implement */
+    lock_acquire (&bus_lock);
+
+    jobs--;
+    
+    if (waiters_prio[currentdirection] > 0){
+	//skicka prio samma sida
+	cond_signal(&waitingToGoPrio[currentdirection],&bus_lock);
+	}
+    else if(waiters_prio[1-currentdirection]>0 && jobs == 0){
+	//skicka prio andra sidan 
+	cond_signal(&waitingToGoPrio[1-currentdirection],&bus_lock);
+	}
+    else if(waiters_prio[1-currentdirection]==0 && waiters_norm[currentdirection]>0){
+        //skicka en normal samma sida 
+	cond_signal(&waitingToGoNorm[currentdirection],&bus_lock);
+	}
+    else if (jobs == 0){
+        // skicka en normal andra sidan 
+	cond_broadcast(&waitingToGoNorm[1-currentdirection],&bus_lock);
+	}
+
+    lock_release(&bus_lock);
 }
+
+
+
+
+
+
+
+
